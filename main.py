@@ -1,11 +1,49 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+import os
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+)
 from telegram.ext import (
-    ApplicationBuilder, CommandHandler, MessageHandler, filters,
-    ContextTypes, ConversationHandler, CallbackQueryHandler
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    CallbackQueryHandler,
+    ConversationHandler,
+    ContextTypes,
+    filters,
 )
 
-# States
+# Conversation states
 CHOOSING_METHOD, ASK_MHR, ASK_RHR = range(3)
+
+def calculate_hrr_zones(mhr, rhr):
+    def hrr_range(low_pct, high_pct):
+        return (
+            round((mhr - rhr) * low_pct + rhr),
+            round((mhr - rhr) * high_pct + rhr),
+        )
+    return {
+        "Zone 1 (Very Light)": hrr_range(0.50, 0.60),
+        "Zone 2 (Light)": hrr_range(0.60, 0.70),
+        "Zone 3 (Moderate)": hrr_range(0.70, 0.80),
+        "Zone 4 (Hard)": hrr_range(0.80, 0.90),
+        "Zone 5 (Maximum)": hrr_range(0.90, 1.00),
+    }
+
+
+def calculate_simple_zones(mhr):
+    def percent_range(low_pct, high_pct):
+        return (round(mhr * low_pct), round(mhr * high_pct))
+
+    return {
+        "Zone 1 (Very Light)": percent_range(0.50, 0.60),
+        "Zone 2 (Light)": percent_range(0.60, 0.70),
+        "Zone 3 (Moderate)": percent_range(0.70, 0.80),
+        "Zone 4 (Hard)": percent_range(0.80, 0.90),
+        "Zone 5 (Maximum)": percent_range(0.90, 1.00),
+    }
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     keyboard = [
@@ -16,10 +54,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
-        "👋 Welcome! Choose your input method:",
-        reply_markup=reply_markup
+        "👋 Welcome! Choose your input method:", reply_markup=reply_markup
     )
     return CHOOSING_METHOD
+
 
 async def choose_method(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
@@ -34,33 +72,6 @@ async def choose_method(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         await query.edit_message_text("Please enter your Max Heart Rate (MHR) in BPM:")
         return ASK_MHR
 
-def calculate_hrr_zones(mhr, rhr):
-    def hrr_range(low_pct, high_pct):
-        return (
-            round((mhr - rhr) * low_pct + rhr),
-            round((mhr - rhr) * high_pct + rhr)
-        )
-    return {
-        'Zone 1 (Very Light)': hrr_range(0.50, 0.60),
-        'Zone 2 (Light)': hrr_range(0.60, 0.70),
-        'Zone 3 (Moderate)': hrr_range(0.70, 0.80),
-        'Zone 4 (Hard)': hrr_range(0.80, 0.90),
-        'Zone 5 (Maximum)': hrr_range(0.90, 1.00),
-    }
-
-def calculate_simple_zones(mhr):
-    def percent_range(low_pct, high_pct):
-        return (
-            round(mhr * low_pct),
-            round(mhr * high_pct)
-        )
-    return {
-        'Zone 1 (Very Light)': percent_range(0.50, 0.60),
-        'Zone 2 (Light)': percent_range(0.60, 0.70),
-        'Zone 3 (Moderate)': percent_range(0.70, 0.80),
-        'Zone 4 (Hard)': percent_range(0.80, 0.90),
-        'Zone 5 (Maximum)': percent_range(0.90, 1.00),
-    }
 
 async def get_mhr(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     try:
@@ -77,10 +88,12 @@ async def get_mhr(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             for zone, (low, high) in zones.items():
                 message += f"{zone}: {low}–{high} BPM\n"
             await update.message.reply_text(message)
+            await send_restart_button(update, context)
             return ConversationHandler.END
     except ValueError:
         await update.message.reply_text("❌ Please enter a valid number for MHR.")
         return ASK_MHR
+
 
 async def get_rhr(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     try:
@@ -93,17 +106,38 @@ async def get_rhr(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             message += f"{zone}: {low}–{high} BPM\n"
 
         await update.message.reply_text(message)
+        await send_restart_button(update, context)
         return ConversationHandler.END
     except ValueError:
         await update.message.reply_text("❌ Please enter a valid number for RHR.")
         return ASK_RHR
 
+
+async def send_restart_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [[InlineKeyboardButton("🔄 Restart", callback_data="restart")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(
+        "You can restart the process anytime:", reply_markup=reply_markup
+    )
+
+
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    if query.data == "restart":
+        context.user_data.clear()
+        await query.edit_message_text(
+            "👋 Restarting...\n\nPlease enter your Max Heart Rate (MHR) in BPM:"
+        )
+        return ASK_MHR
+
+
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text("❎ Conversation cancelled.")
     return ConversationHandler.END
 
+
 def main():
-    import os
     TOKEN = os.environ["BOT_TOKEN"]
 
     app = ApplicationBuilder().token(TOKEN).build()
@@ -111,7 +145,10 @@ def main():
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
-            CHOOSING_METHOD: [CallbackQueryHandler(choose_method)],
+            CHOOSING_METHOD: [
+                CallbackQueryHandler(choose_method, pattern="^(both|mhr_only)$"),
+                CallbackQueryHandler(button_handler, pattern="^restart$"),
+            ],
             ASK_MHR: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_mhr)],
             ASK_RHR: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_rhr)],
         },
@@ -122,6 +159,7 @@ def main():
 
     print("🤖 Bot is running...")
     app.run_polling()
+
 
 if __name__ == "__main__":
     main()
