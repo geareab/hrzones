@@ -1,12 +1,38 @@
-import os
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler, filters,
-    ContextTypes, ConversationHandler
+    ContextTypes, ConversationHandler, CallbackQueryHandler
 )
 
-# Define states for conversation
-ASK_MHR, ASK_RHR = range(2)
+# States
+CHOOSING_METHOD, ASK_MHR, ASK_RHR = range(3)
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    keyboard = [
+        [
+            InlineKeyboardButton("I have both MHR & RHR", callback_data="both"),
+            InlineKeyboardButton("I have only MHR", callback_data="mhr_only"),
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(
+        "👋 Welcome! Choose your input method:",
+        reply_markup=reply_markup
+    )
+    return CHOOSING_METHOD
+
+async def choose_method(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    method = query.data
+    context.user_data["method"] = method
+
+    if method == "both":
+        await query.edit_message_text("Please enter your Max Heart Rate (MHR) in BPM:")
+        return ASK_MHR
+    else:  # mhr_only
+        await query.edit_message_text("Please enter your Max Heart Rate (MHR) in BPM:")
+        return ASK_MHR
 
 def calculate_hrr_zones(mhr, rhr):
     def hrr_range(low_pct, high_pct):
@@ -22,19 +48,36 @@ def calculate_hrr_zones(mhr, rhr):
         'Zone 5 (Maximum)': hrr_range(0.90, 1.00),
     }
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text(
-        "👋 Welcome! Let's calculate your heart rate zones.\n"
-        "Please enter your Max Heart Rate (MHR) in BPM:"
-    )
-    return ASK_MHR
+def calculate_simple_zones(mhr):
+    def percent_range(low_pct, high_pct):
+        return (
+            round(mhr * low_pct),
+            round(mhr * high_pct)
+        )
+    return {
+        'Zone 1 (Very Light)': percent_range(0.50, 0.60),
+        'Zone 2 (Light)': percent_range(0.60, 0.70),
+        'Zone 3 (Moderate)': percent_range(0.70, 0.80),
+        'Zone 4 (Hard)': percent_range(0.80, 0.90),
+        'Zone 5 (Maximum)': percent_range(0.90, 1.00),
+    }
 
 async def get_mhr(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     try:
         mhr = int(update.message.text)
         context.user_data["mhr"] = mhr
-        await update.message.reply_text("👍 Now enter your Resting Heart Rate (RHR) in BPM:")
-        return ASK_RHR
+        method = context.user_data.get("method")
+
+        if method == "both":
+            await update.message.reply_text("👍 Now enter your Resting Heart Rate (RHR) in BPM:")
+            return ASK_RHR
+        else:
+            zones = calculate_simple_zones(mhr)
+            message = "✅ Here are your heart rate zones (based on MHR only):\n\n"
+            for zone, (low, high) in zones.items():
+                message += f"{zone}: {low}–{high} BPM\n"
+            await update.message.reply_text(message)
+            return ConversationHandler.END
     except ValueError:
         await update.message.reply_text("❌ Please enter a valid number for MHR.")
         return ASK_MHR
@@ -60,6 +103,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return ConversationHandler.END
 
 def main():
+    import os
     TOKEN = os.environ["BOT_TOKEN"]
 
     app = ApplicationBuilder().token(TOKEN).build()
@@ -67,6 +111,7 @@ def main():
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
+            CHOOSING_METHOD: [CallbackQueryHandler(choose_method)],
             ASK_MHR: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_mhr)],
             ASK_RHR: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_rhr)],
         },
