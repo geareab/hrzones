@@ -1,10 +1,12 @@
+import os
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
+from telegram.ext import (
+    ApplicationBuilder, CommandHandler, MessageHandler, filters,
+    ContextTypes, ConversationHandler
+)
 
-# States
+# Define states for conversation
 ASK_MHR, ASK_RHR = range(2)
-
-user_data_store = {}
 
 def calculate_hrr_zones(mhr, rhr):
     def hrr_range(low_pct, high_pct):
@@ -12,7 +14,6 @@ def calculate_hrr_zones(mhr, rhr):
             round((mhr - rhr) * low_pct + rhr),
             round((mhr - rhr) * high_pct + rhr)
         )
-
     return {
         'Zone 1 (Very Light)': hrr_range(0.50, 0.60),
         'Zone 2 (Light)': hrr_range(0.60, 0.70),
@@ -22,7 +23,10 @@ def calculate_hrr_zones(mhr, rhr):
     }
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text("👋 Welcome! Let's calculate your heart rate zones.\n\nPlease enter your Max Heart Rate (MHR) in BPM:")
+    await update.message.reply_text(
+        "👋 Welcome! Let's calculate your heart rate zones.\n"
+        "Please enter your Max Heart Rate (MHR) in BPM:"
+    )
     return ASK_MHR
 
 async def get_mhr(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -39,9 +43,9 @@ async def get_rhr(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     try:
         rhr = int(update.message.text)
         mhr = context.user_data["mhr"]
-
         zones = calculate_hrr_zones(mhr, rhr)
-        message = f"✅ Here are your personalized heart rate zones (HRR-based):\n\n"
+
+        message = "✅ Here are your personalized heart rate zones (HRR-based):\n\n"
         for zone, (low, high) in zones.items():
             message += f"{zone}: {low}–{high} BPM\n"
 
@@ -56,8 +60,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return ConversationHandler.END
 
 def main():
-    # Replace with your own bot token
-    TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
+    TOKEN = os.environ["BOT_TOKEN"]
 
     app = ApplicationBuilder().token(TOKEN).build()
 
