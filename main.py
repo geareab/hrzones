@@ -45,7 +45,7 @@ def calculate_simple_zones(mhr):
     }
 
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def send_method_choice(update_or_query, context):
     keyboard = [
         [
             InlineKeyboardButton("I have both MHR & RHR", callback_data="both"),
@@ -53,9 +53,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(
-        "👋 Welcome! Choose your input method:", reply_markup=reply_markup
-    )
+    if hasattr(update_or_query, "edit_message_text"):
+        # It's a CallbackQuery
+        await update_or_query.edit_message_text(
+            "👋 Welcome! Choose your input method:", reply_markup=reply_markup
+        )
+    else:
+        # It's a Message
+        await update_or_query.message.reply_text(
+            "👋 Welcome! Choose your input method:", reply_markup=reply_markup
+        )
+
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    await send_method_choice(update, context)
     return CHOOSING_METHOD
 
 
@@ -65,12 +76,8 @@ async def choose_method(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     method = query.data
     context.user_data["method"] = method
 
-    if method == "both":
-        await query.edit_message_text("Please enter your Max Heart Rate (MHR) in BPM:")
-        return ASK_MHR
-    else:  # mhr_only
-        await query.edit_message_text("Please enter your Max Heart Rate (MHR) in BPM:")
-        return ASK_MHR
+    await query.edit_message_text("Please enter your Max Heart Rate (MHR) in BPM:")
+    return ASK_MHR
 
 
 async def get_mhr(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -126,10 +133,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await query.answer()
     if query.data == "restart":
         context.user_data.clear()
-        await query.edit_message_text(
-            "👋 Restarting...\n\nPlease enter your Max Heart Rate (MHR) in BPM:"
-        )
-        return ASK_MHR
+        await send_method_choice(query, context)
+        return CHOOSING_METHOD
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
