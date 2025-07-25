@@ -95,7 +95,6 @@ async def get_mhr(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             for zone, (low, high) in zones.items():
                 message += f"{zone}: {low}–{high} BPM\n"
             await update.message.reply_text(message)
-            await send_restart_button(update, context)
             return ConversationHandler.END
     except ValueError:
         await update.message.reply_text("❌ Please enter a valid number for MHR.")
@@ -113,28 +112,10 @@ async def get_rhr(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             message += f"{zone}: {low}–{high} BPM\n"
 
         await update.message.reply_text(message)
-        await send_restart_button(update, context)
         return ConversationHandler.END
     except ValueError:
         await update.message.reply_text("❌ Please enter a valid number for RHR.")
         return ASK_RHR
-
-
-async def send_restart_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [[InlineKeyboardButton("🔄 Restart", callback_data="restart")]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(
-        "You can restart the process anytime:", reply_markup=reply_markup
-    )
-
-
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    query = update.callback_query
-    await query.answer()
-    if query.data == "restart":
-        context.user_data.clear()
-        await send_method_choice(query, context)
-        return CHOOSING_METHOD
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -150,10 +131,7 @@ def main():
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
-            CHOOSING_METHOD: [
-                CallbackQueryHandler(choose_method, pattern="^(both|mhr_only)$"),
-                CallbackQueryHandler(button_handler, pattern="^restart$"),
-            ],
+            CHOOSING_METHOD: [CallbackQueryHandler(choose_method, pattern="^(both|mhr_only)$")],
             ASK_MHR: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_mhr)],
             ASK_RHR: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_rhr)],
         },
